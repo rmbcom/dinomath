@@ -462,10 +462,10 @@
     <section class="overlay" id="rankingOverlay">
       <div class="modal">
         <h2>Ranking</h2>
-        <p class="copy">Top online guardado en Firebase.</p>
+        <p class="copy">Top de puntuaciones.</p>
         <ol class="ranking-list" id="rankingList"></ol>
         <p class="empty-ranking" id="emptyRanking">Aun no hay puntuaciones guardadas.</p>
-        <p class="ranking-meta" id="rankingStatus">Conectando con Firebase...</p>
+        <p class="ranking-meta" id="rankingStatus">Cargando ranking...</p>
         <div class="button-row">
           <button id="closeRankingBtn" type="button">Cerrar</button>
         </div>
@@ -806,7 +806,7 @@
         };
 
         if (!firebaseReady || !firebaseApi || !firebaseDb) {
-          rankingStatus.textContent = "Firebase aun no esta conectado. Reintenta en unos segundos.";
+          rankingStatus.textContent = "El ranking aun se esta conectando. Reintenta en unos segundos.";
           punish();
           return;
         }
@@ -821,13 +821,13 @@
           });
           localStorage.setItem(lastPlayerNameKey, name);
           state.scoreSaved = true;
-          saveScoreBtn.textContent = "Guardado online";
-          rankingStatus.textContent = "Puntuacion guardada en Firebase.";
+          saveScoreBtn.textContent = "Guardado";
+          rankingStatus.textContent = "Puntuacion guardada.";
           prize();
         } catch (error) {
           saveScoreBtn.disabled = false;
           saveScoreBtn.textContent = "Guardar score";
-          rankingStatus.textContent = "No se pudo guardar en Firebase. Revisa reglas/conexion.";
+          rankingStatus.textContent = "No se pudo guardar la puntuacion. Reintenta en unos segundos.";
           console.error(error);
           punish();
         }
@@ -858,7 +858,7 @@
           firebaseDb = dbModule.getDatabase(app);
           firebaseApi = dbModule;
           firebaseReady = true;
-          rankingStatus.textContent = "Ranking online conectado.";
+          rankingStatus.textContent = "Ranking listo.";
 
           const rankingQuery = dbModule.query(
             dbModule.ref(firebaseDb, firebaseRankingPath),
@@ -876,17 +876,17 @@
               .sort((a, b) => b.score - a.score || b.streak - a.streak || a.name.localeCompare(b.name))
               .slice(0, 10);
             rankingStatus.textContent = firebaseRanking.length
-              ? "Ranking online actualizado desde Firebase."
-              : "Ranking online conectado. Aun no hay puntuaciones.";
+              ? "Ranking actualizado."
+              : "Ranking listo. Aun no hay puntuaciones.";
             renderRanking();
           }, (error) => {
             firebaseReady = false;
-            rankingStatus.textContent = "No se pudo leer Firebase. Revisa reglas/conexion.";
+            rankingStatus.textContent = "No se pudo cargar el ranking. Reintenta en unos segundos.";
             console.error(error);
           });
         } catch (error) {
           firebaseReady = false;
-          rankingStatus.textContent = "Firebase no disponible. El juego funciona, pero el ranking online no.";
+          rankingStatus.textContent = "Ranking no disponible ahora mismo. El juego funciona igualmente.";
           console.error(error);
         }
       }
