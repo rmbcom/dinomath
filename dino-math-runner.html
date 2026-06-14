@@ -264,9 +264,25 @@
       gap: 8px;
       margin: 18px auto 0;
       max-width: 440px;
+      max-height: min(44vh, 320px);
+      overflow-y: auto;
+      overscroll-behavior: contain;
       padding: 0;
+      padding-right: 6px;
       list-style: none;
       text-align: left;
+    }
+
+    .ranking-list::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .ranking-list::-webkit-scrollbar-thumb {
+      background: rgba(0, 245, 255, 0.42);
+    }
+
+    .ranking-list::-webkit-scrollbar-track {
+      background: rgba(0, 245, 255, 0.08);
     }
 
     .ranking-row {
@@ -303,14 +319,6 @@
       margin: 18px 0 0;
       color: var(--muted);
       font-family: Consolas, "Courier New", monospace;
-    }
-
-    .ranking-meta {
-      margin: 14px auto 0;
-      max-width: 44ch;
-      color: var(--muted);
-      font-size: 13px;
-      line-height: 1.38;
     }
 
     .ranking-meta {
@@ -396,6 +404,10 @@
         padding: 8px;
         font-size: 13px;
       }
+
+      .ranking-list {
+        max-height: 34vh;
+      }
     }
   </style>
 </head>
@@ -412,7 +424,7 @@
       </div>
       <div class="hud-card">
         <span class="hud-label">Barreras</span>
-        <span class="hud-value" id="barriers">0/10</span>
+        <span class="hud-value" id="barriers">0/6</span>
       </div>
     </div>
 
@@ -422,7 +434,7 @@
     <section class="overlay active" id="startOverlay">
       <div class="modal">
         <h1>Dino Math Runner</h1>
-        <p class="copy">Salta barreras, encadena rachas y resuelve una operacion cada 10 obstaculos. Un fallo matematico corta la carrera al instante.</p>
+        <p class="copy">Salta barreras, encadena rachas y resuelve una operacion cada 6 obstaculos. Cada 3 retos completados cierras una fase.</p>
         <div class="button-row">
           <button id="startBtn" type="button">Iniciar</button>
         </div>
@@ -440,6 +452,14 @@
         <div class="button-row">
           <button id="answerBtn" type="button">Responder</button>
         </div>
+      </div>
+    </section>
+
+    <section class="overlay" id="rewardOverlay">
+      <div class="modal">
+        <h2 id="rewardTitle">Reto superado</h2>
+        <p class="copy" id="rewardMessage">Volviendo a la carrera...</p>
+        <p class="small-stat">Preparando siguiente tramo: 2 segundos</p>
       </div>
     </section>
 
@@ -486,11 +506,14 @@
       const barriersEl = document.getElementById("barriers");
       const startOverlay = document.getElementById("startOverlay");
       const mathOverlay = document.getElementById("mathOverlay");
+      const rewardOverlay = document.getElementById("rewardOverlay");
       const gameOverOverlay = document.getElementById("gameOverOverlay");
       const rankingOverlay = document.getElementById("rankingOverlay");
       const mathPromptEl = document.getElementById("mathPrompt");
       const mathExpressionEl = document.getElementById("mathExpression");
       const mathInput = document.getElementById("mathInput");
+      const rewardTitle = document.getElementById("rewardTitle");
+      const rewardMessage = document.getElementById("rewardMessage");
       const gameOverReason = document.getElementById("gameOverReason");
       const finalStats = document.getElementById("finalStats");
       const playerNameInput = document.getElementById("playerNameInput");
@@ -513,6 +536,10 @@
       let firebaseDb = null;
       let firebaseReady = false;
       let firebaseRanking = [];
+      let audioContext = null;
+
+      const CHALLENGE_INTERVAL = 6;
+      const CHALLENGES_PER_PHASE = 3;
 
       const state = {
         mode: "start",
@@ -527,6 +554,8 @@
         particles: [],
         lastTime: 0,
         mathAnswer: 0,
+        totalChallengesSolved: 0,
+        rewardTimer: 0,
         scoreSaved: false,
         beforeRankingMode: "start"
       };
@@ -574,6 +603,9 @@
         state.obstacles = [];
         state.particles = [];
         state.lastTime = performance.now();
+        state.totalChallengesSolved = 0;
+        if (state.rewardTimer) clearTimeout(state.rewardTimer);
+        state.rewardTimer = 0;
         state.scoreSaved = false;
         saveScoreBtn.disabled = false;
         saveScoreBtn.textContent = "Guardar score";
@@ -588,6 +620,7 @@
 
         setOverlay(startOverlay, false);
         setOverlay(mathOverlay, false);
+        setOverlay(rewardOverlay, false);
         setOverlay(gameOverOverlay, false);
         setOverlay(rankingOverlay, false);
         updateHud();
@@ -601,7 +634,7 @@
         const multiplier = getMultiplier();
         scoreEl.textContent = Math.floor(state.score).toLocaleString("es-ES");
         streakEl.textContent = `${state.streak} x${multiplier.toFixed(2)}`;
-        barriersEl.textContent = `${state.barriersCycle}/10`;
+        barriersEl.textContent = `${Math.min(state.barriersCycle, CHALLENGE_INTERVAL)}/${CHALLENGE_INTERVAL}`;
       }
 
       function getMultiplier() {
@@ -684,14 +717,14 @@
         dino.blink = 0.15;
         emitParticles(dino.x + dino.w, dino.y + 12, "#39ff88", 10);
 
-        if (state.barriersCycle >= 10) {
+        if (state.barriersCycle >= CHALLENGE_INTERVAL) {
           openMathChallenge();
         }
       }
 
       function openMathChallenge() {
         state.mode = "math";
-        state.barriersCycle = 10;
+        state.barriersCycle = CHALLENGE_INTERVAL;
         const challenge = makeChallenge();
         state.mathAnswer = challenge.answer;
         mathPromptEl.textContent = challenge.prompt;
@@ -756,11 +789,12 @@
         if (Number.isFinite(value) && value === state.mathAnswer) {
           const boost = Math.round(700 * getMultiplier() + state.streak * 42);
           state.score += boost;
+          state.totalChallengesSolved += 1;
           state.barriersCycle = 0;
-          state.mode = "running";
-          state.lastTime = performance.now();
+          state.mode = "reward";
           setOverlay(mathOverlay, false);
-          prize();
+          showReward(boost);
+          playAchievementSound();
           emitParticles(dino.x + dino.w / 2, dino.y, "#00f5ff", 34);
           updateHud();
         } else {
@@ -768,6 +802,32 @@
           setOverlay(mathOverlay, false);
           endGame("Calculo incorrecto. Sistema de racha bloqueado.");
         }
+      }
+
+      function showReward(boost) {
+        const completedPhase = state.totalChallengesSolved % CHALLENGES_PER_PHASE === 0;
+        const currentPhase = Math.max(1, Math.ceil(state.totalChallengesSolved / CHALLENGES_PER_PHASE));
+        if (completedPhase) {
+          rewardTitle.textContent = "Enhorabuena";
+          rewardMessage.textContent = `Fase ${currentPhase} superada: 3 retos completados. Bonus +${boost.toLocaleString("es-ES")} puntos.`;
+        } else {
+          const solvedInPhase = state.totalChallengesSolved % CHALLENGES_PER_PHASE;
+          rewardTitle.textContent = "Reto superado";
+          rewardMessage.textContent = `Reto ${solvedInPhase}/${CHALLENGES_PER_PHASE} de la fase ${currentPhase} completado. Bonus +${boost.toLocaleString("es-ES")} puntos.`;
+        }
+
+        prize();
+        setOverlay(rewardOverlay, true);
+        if (state.rewardTimer) clearTimeout(state.rewardTimer);
+        state.rewardTimer = setTimeout(resumeAfterReward, 2000);
+      }
+
+      function resumeAfterReward() {
+        state.rewardTimer = 0;
+        setOverlay(rewardOverlay, false);
+        state.mode = "running";
+        state.lastTime = performance.now();
+        updateHud();
       }
 
       function endGame(reason) {
@@ -940,6 +1000,41 @@
         shell.classList.remove("flash-punish");
         void shell.offsetWidth;
         shell.classList.add("flash-punish");
+      }
+
+      function playAchievementSound() {
+        try {
+          if (!audioContext) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          }
+          if (audioContext.state === "suspended") audioContext.resume();
+
+          const now = audioContext.currentTime;
+          const notes = [
+            { freq: 659.25, start: 0, duration: 0.09 },
+            { freq: 783.99, start: 0.1, duration: 0.09 },
+            { freq: 987.77, start: 0.2, duration: 0.11 },
+            { freq: 1318.51, start: 0.34, duration: 0.16 },
+            { freq: 987.77, start: 0.53, duration: 0.12 },
+            { freq: 1567.98, start: 0.68, duration: 0.22 }
+          ];
+
+          notes.forEach((note) => {
+            const oscillator = audioContext.createOscillator();
+            const gain = audioContext.createGain();
+            oscillator.type = "square";
+            oscillator.frequency.setValueAtTime(note.freq, now + note.start);
+            gain.gain.setValueAtTime(0.0001, now + note.start);
+            gain.gain.exponentialRampToValueAtTime(0.12, now + note.start + 0.012);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + note.start + note.duration);
+            oscillator.connect(gain);
+            gain.connect(audioContext.destination);
+            oscillator.start(now + note.start);
+            oscillator.stop(now + note.start + note.duration + 0.03);
+          });
+        } catch {
+          // Si el navegador bloquea audio, el juego continua sin sonido.
+        }
       }
 
       function draw() {
