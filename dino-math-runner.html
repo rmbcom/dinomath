@@ -231,13 +231,16 @@
 
     .phase-video-modal {
       width: min(96vw, 860px);
+      max-height: calc(100vh - 32px);
       padding: clamp(16px, 3vw, 26px);
+      overflow: auto;
     }
 
     .phase-video {
       display: block;
       width: 100%;
-      max-height: min(70vh, 520px);
+      height: 100%;
+      max-height: min(64vh, 520px);
       margin: 18px auto 0;
       border: 1px solid rgba(0, 245, 255, 0.52);
       background: #000;
@@ -251,7 +254,10 @@
     .phase-video-frame {
       position: relative;
       width: min(100%, 820px);
+      aspect-ratio: 16 / 9;
+      max-height: min(64vh, 520px);
       margin: 18px auto 0;
+      background: #000;
     }
 
     .phase-video-frame .phase-video {
@@ -919,8 +925,10 @@
         phaseVideo.currentTime = 0;
         if (!phaseVideo.src) phaseVideo.src = PHASE_VIDEO_URL;
         phaseVideo.muted = false;
+        phaseVideo.volume = 0.8;
         phaseVideo.play().catch(() => {
           phaseVideo.muted = true;
+          phaseVideo.volume = 0.8;
           phaseVideo.play().catch(() => {
             phaseVideoStatus.textContent = "Toca el video para reproducir la recompensa.";
           });
