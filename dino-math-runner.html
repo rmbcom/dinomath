@@ -229,6 +229,44 @@
       text-shadow: 0 0 18px rgba(57, 255, 136, 0.78);
     }
 
+    .phase-video {
+      display: block;
+      width: min(100%, 620px);
+      max-height: min(58vh, 420px);
+      margin: 18px auto 0;
+      border: 1px solid rgba(0, 245, 255, 0.52);
+      background: #000;
+      opacity: 0.7;
+      box-shadow:
+        0 0 22px rgba(0, 245, 255, 0.24),
+        inset 0 0 24px rgba(0, 60, 255, 0.16);
+    }
+
+    .phase-video-frame {
+      position: relative;
+      width: min(100%, 620px);
+      margin: 18px auto 0;
+    }
+
+    .phase-video-frame .phase-video {
+      width: 100%;
+      margin: 0;
+    }
+
+    .phase-video-frame::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(rgba(0, 245, 255, 0.12) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(57, 255, 136, 0.08) 1px, transparent 1px),
+        radial-gradient(circle at 50% 50%, transparent 46%, rgba(0, 0, 0, 0.34) 100%);
+      background-size: 18px 18px, 18px 18px, 100% 100%;
+      mix-blend-mode: screen;
+      box-shadow: inset 0 0 36px rgba(0, 245, 255, 0.22);
+    }
+
     input {
       width: min(100%, 280px);
       height: 50px;
@@ -250,6 +288,18 @@
       color: var(--muted);
       font-family: Consolas, "Courier New", monospace;
       font-size: 14px;
+    }
+
+    .countdown-number {
+      margin: 18px 0 0;
+      color: var(--green);
+      font-family: Consolas, "Courier New", monospace;
+      font-size: clamp(72px, 18vw, 150px);
+      font-weight: 900;
+      line-height: 0.9;
+      text-shadow:
+        0 0 18px rgba(57, 255, 136, 0.9),
+        0 0 44px rgba(0, 245, 255, 0.42);
     }
 
     .name-entry {
@@ -459,7 +509,19 @@
       <div class="modal">
         <h2 id="rewardTitle">Reto superado</h2>
         <p class="copy" id="rewardMessage">Volviendo a la carrera...</p>
-        <p class="small-stat">Preparando siguiente tramo: 2 segundos</p>
+        <div class="countdown-number" id="countdownNumber" hidden>3</div>
+        <p class="small-stat" id="rewardStatus">Preparando siguiente tramo: 2 segundos</p>
+      </div>
+    </section>
+
+    <section class="overlay" id="phaseVideoOverlay">
+      <div class="modal">
+        <h2 id="phaseVideoTitle">Enhorabuena</h2>
+        <p class="copy" id="phaseVideoMessage">Recompensa desbloqueada.</p>
+        <div class="phase-video-frame">
+          <video class="phase-video" id="phaseVideo" playsinline preload="metadata"></video>
+        </div>
+        <p class="small-stat" id="phaseVideoStatus">El juego continuara al terminar el video.</p>
       </div>
     </section>
 
@@ -507,6 +569,7 @@
       const startOverlay = document.getElementById("startOverlay");
       const mathOverlay = document.getElementById("mathOverlay");
       const rewardOverlay = document.getElementById("rewardOverlay");
+      const phaseVideoOverlay = document.getElementById("phaseVideoOverlay");
       const gameOverOverlay = document.getElementById("gameOverOverlay");
       const rankingOverlay = document.getElementById("rankingOverlay");
       const mathPromptEl = document.getElementById("mathPrompt");
@@ -514,6 +577,12 @@
       const mathInput = document.getElementById("mathInput");
       const rewardTitle = document.getElementById("rewardTitle");
       const rewardMessage = document.getElementById("rewardMessage");
+      const rewardStatus = document.getElementById("rewardStatus");
+      const countdownNumber = document.getElementById("countdownNumber");
+      const phaseVideoTitle = document.getElementById("phaseVideoTitle");
+      const phaseVideoMessage = document.getElementById("phaseVideoMessage");
+      const phaseVideo = document.getElementById("phaseVideo");
+      const phaseVideoStatus = document.getElementById("phaseVideoStatus");
       const gameOverReason = document.getElementById("gameOverReason");
       const finalStats = document.getElementById("finalStats");
       const playerNameInput = document.getElementById("playerNameInput");
@@ -540,6 +609,7 @@
 
       const CHALLENGE_INTERVAL = 6;
       const CHALLENGES_PER_PHASE = 3;
+      const PHASE_VIDEO_URL = "https://media.githubusercontent.com/media/rmbcom/ima/main/Bruce1.mp4";
 
       const state = {
         mode: "start",
@@ -556,6 +626,8 @@
         mathAnswer: 0,
         totalChallengesSolved: 0,
         rewardTimer: 0,
+        phaseVideoLimit: null,
+        phaseVideoActive: false,
         scoreSaved: false,
         beforeRankingMode: "start"
       };
@@ -606,6 +678,7 @@
         state.totalChallengesSolved = 0;
         if (state.rewardTimer) clearTimeout(state.rewardTimer);
         state.rewardTimer = 0;
+        stopPhaseVideo();
         state.scoreSaved = false;
         saveScoreBtn.disabled = false;
         saveScoreBtn.textContent = "Guardar score";
@@ -621,8 +694,10 @@
         setOverlay(startOverlay, false);
         setOverlay(mathOverlay, false);
         setOverlay(rewardOverlay, false);
+        setOverlay(phaseVideoOverlay, false);
         setOverlay(gameOverOverlay, false);
         setOverlay(rankingOverlay, false);
+        countdownNumber.hidden = true;
         updateHud();
       }
 
@@ -810,24 +885,101 @@
         if (completedPhase) {
           rewardTitle.textContent = "Enhorabuena";
           rewardMessage.textContent = `Fase ${currentPhase} superada: 3 retos completados. Bonus +${boost.toLocaleString("es-ES")} puntos.`;
+          startPhaseVideo(currentPhase, boost);
+          return;
         } else {
           const solvedInPhase = state.totalChallengesSolved % CHALLENGES_PER_PHASE;
           rewardTitle.textContent = "Reto superado";
           rewardMessage.textContent = `Reto ${solvedInPhase}/${CHALLENGES_PER_PHASE} de la fase ${currentPhase} completado. Bonus +${boost.toLocaleString("es-ES")} puntos.`;
         }
 
+        countdownNumber.hidden = true;
+        rewardStatus.textContent = "Preparando siguiente tramo: 2 segundos";
         prize();
         setOverlay(rewardOverlay, true);
         if (state.rewardTimer) clearTimeout(state.rewardTimer);
         state.rewardTimer = setTimeout(resumeAfterReward, 2000);
       }
 
+      function startPhaseVideo(phase, boost) {
+        const videoLimit = getPhaseVideoLimit(phase);
+        state.phaseVideoLimit = videoLimit;
+        state.phaseVideoActive = true;
+        phaseVideoTitle.textContent = "Enhorabuena";
+        phaseVideoMessage.textContent = videoLimit
+          ? `Fase ${phase} superada. Recompensa: primeros ${videoLimit} segundos del video. Bonus +${boost.toLocaleString("es-ES")} puntos.`
+          : `Fase ${phase} superada. Recompensa: video completo. Bonus +${boost.toLocaleString("es-ES")} puntos.`;
+        phaseVideoStatus.textContent = "El juego continuara al terminar la recompensa.";
+        setOverlay(rewardOverlay, false);
+        setOverlay(phaseVideoOverlay, true);
+        prize();
+
+        phaseVideo.pause();
+        phaseVideo.currentTime = 0;
+        if (!phaseVideo.src) phaseVideo.src = PHASE_VIDEO_URL;
+        phaseVideo.muted = false;
+        phaseVideo.play().catch(() => {
+          phaseVideo.muted = true;
+          phaseVideo.play().catch(() => {
+            phaseVideoStatus.textContent = "Toca el video para reproducir la recompensa.";
+          });
+        });
+      }
+
+      function getPhaseVideoLimit(phase) {
+        if (phase === 1) return 10;
+        if (phase === 2) return 20;
+        return null;
+      }
+
+      function finishPhaseVideo() {
+        if (!state.phaseVideoActive) return;
+        stopPhaseVideo();
+        startResumeCountdown();
+      }
+
+      function stopPhaseVideo() {
+        state.phaseVideoActive = false;
+        state.phaseVideoLimit = null;
+        phaseVideo.pause();
+        try {
+          phaseVideo.currentTime = 0;
+        } catch {
+          // Algunos navegadores no permiten cambiar currentTime hasta cargar metadata.
+        }
+        setOverlay(phaseVideoOverlay, false);
+      }
+
       function resumeAfterReward() {
         state.rewardTimer = 0;
         setOverlay(rewardOverlay, false);
+        setOverlay(phaseVideoOverlay, false);
+        countdownNumber.hidden = true;
         state.mode = "running";
         state.lastTime = performance.now();
         updateHud();
+      }
+
+      function startResumeCountdown() {
+        let remaining = 3;
+        rewardTitle.textContent = "Preparate";
+        rewardMessage.textContent = "La carrera vuelve enseguida.";
+        rewardStatus.textContent = "No saltes todavia.";
+        countdownNumber.hidden = false;
+        countdownNumber.textContent = String(remaining);
+        setOverlay(rewardOverlay, true);
+
+        if (state.rewardTimer) clearTimeout(state.rewardTimer);
+        const tick = () => {
+          remaining -= 1;
+          if (remaining <= 0) {
+            resumeAfterReward();
+            return;
+          }
+          countdownNumber.textContent = String(remaining);
+          state.rewardTimer = setTimeout(tick, 1000);
+        };
+        state.rewardTimer = setTimeout(tick, 1000);
       }
 
       function endGame(reason) {
@@ -1216,6 +1368,16 @@
       document.getElementById("viewRankingBtn").addEventListener("click", openRanking);
       document.getElementById("closeRankingBtn").addEventListener("click", closeRanking);
       saveScoreBtn.addEventListener("click", saveCurrentScore);
+      phaseVideo.addEventListener("timeupdate", () => {
+        if (!state.phaseVideoActive || !state.phaseVideoLimit) return;
+        if (phaseVideo.currentTime >= state.phaseVideoLimit) finishPhaseVideo();
+      });
+      phaseVideo.addEventListener("ended", finishPhaseVideo);
+      phaseVideo.addEventListener("error", () => {
+        if (!state.phaseVideoActive) return;
+        phaseVideoStatus.textContent = "No se pudo cargar el video. Volviendo al juego...";
+        setTimeout(finishPhaseVideo, 1200);
+      });
 
       window.addEventListener("keydown", (event) => {
         if (event.code === "Space" || event.code === "ArrowUp") {
