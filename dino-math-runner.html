@@ -639,6 +639,8 @@
         rewardTimer: 0,
         phaseVideoLimit: null,
         phaseVideoActive: false,
+        phaseVideoWatched: 0,
+        phaseVideoLastTime: null,
         scoreSaved: false,
         beforeRankingMode: "start"
       };
@@ -916,6 +918,8 @@
         const videoLimit = getPhaseVideoLimit(phase);
         state.phaseVideoLimit = videoLimit;
         state.phaseVideoActive = true;
+        state.phaseVideoWatched = 0;
+        state.phaseVideoLastTime = null;
         phaseVideoTitle.textContent = "Enhorabuena";
         phaseVideoMessage.textContent = videoLimit
           ? `Fase ${phase} superada. Recompensa: primeros ${videoLimit} segundos del video. Bonus +${boost.toLocaleString("es-ES")} puntos.`
@@ -971,9 +975,42 @@
         if (!playRequest || typeof playRequest.catch !== "function") return;
         playRequest.catch(() => {
           if (!state.phaseVideoActive) return;
-          phaseVideoPlayBtn.hidden = false;
-          phaseVideoStatus.textContent = "Pulsa Continuar recompensa.";
+          phaseVideo.muted = true;
+          phaseVideo.volume = 0.8;
+          const mutedRequest = phaseVideo.play();
+          if (!mutedRequest || typeof mutedRequest.catch !== "function") return;
+          mutedRequest
+            .then(() => {
+              if (!state.phaseVideoActive) return;
+              setTimeout(() => {
+                if (!state.phaseVideoActive) return;
+                phaseVideo.muted = false;
+                phaseVideo.volume = 0.8;
+              }, 250);
+            })
+            .catch(() => {
+              if (!state.phaseVideoActive) return;
+              phaseVideo.muted = false;
+              phaseVideoPlayBtn.hidden = false;
+              phaseVideoStatus.textContent = "Pulsa Continuar recompensa.";
+            });
         });
+      }
+
+      function updatePhaseVideoWatchedTime() {
+        if (!state.phaseVideoActive || !state.phaseVideoLimit) return;
+        if (phaseVideo.readyState < 2 || phaseVideo.videoWidth <= 0) return;
+        const currentTime = phaseVideo.currentTime;
+        if (!Number.isFinite(currentTime)) return;
+        if (state.phaseVideoLastTime === null) {
+          state.phaseVideoLastTime = currentTime;
+          return;
+        }
+        const delta = currentTime - state.phaseVideoLastTime;
+        state.phaseVideoLastTime = currentTime;
+        if (delta <= 0 || delta > 1.5) return;
+        state.phaseVideoWatched += delta;
+        if (state.phaseVideoWatched >= state.phaseVideoLimit) finishPhaseVideo();
       }
 
       function getPhaseVideoLimit(phase) {
@@ -991,6 +1028,8 @@
       function stopPhaseVideo() {
         state.phaseVideoActive = false;
         state.phaseVideoLimit = null;
+        state.phaseVideoWatched = 0;
+        state.phaseVideoLastTime = null;
         phaseVideoPlayBtn.hidden = true;
         phaseVideo.pause();
         try {
@@ -1438,6 +1477,8 @@
         } catch {
           // Algunos navegadores esperan a tener datos suficientes.
         }
+        state.phaseVideoWatched = 0;
+        state.phaseVideoLastTime = null;
       });
       phaseVideo.addEventListener("loadeddata", () => {
         if (!state.phaseVideoActive) return;
@@ -1448,6 +1489,7 @@
         if (!state.phaseVideoActive) return;
         phaseVideoPlayBtn.hidden = true;
         phaseVideoStatus.textContent = "Recompensa en marcha...";
+        state.phaseVideoLastTime = null;
       });
       phaseVideo.addEventListener("waiting", () => {
         if (!state.phaseVideoActive) return;
@@ -1458,9 +1500,7 @@
         phaseVideoStatus.textContent = "Preparando recompensa...";
       });
       phaseVideo.addEventListener("timeupdate", () => {
-        if (!state.phaseVideoActive || !state.phaseVideoLimit) return;
-        if (phaseVideo.readyState < 2 || phaseVideo.videoWidth <= 0) return;
-        if (phaseVideo.currentTime >= state.phaseVideoLimit) finishPhaseVideo();
+        updatePhaseVideoWatchedTime();
       });
       phaseVideo.addEventListener("ended", finishPhaseVideo);
       phaseVideo.addEventListener("error", () => {
