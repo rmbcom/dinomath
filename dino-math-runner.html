@@ -526,7 +526,7 @@
         <h2 id="phaseVideoTitle">Enhorabuena</h2>
         <p class="copy" id="phaseVideoMessage">Recompensa desbloqueada.</p>
         <div class="phase-video-frame">
-          <video class="phase-video" id="phaseVideo" playsinline preload="auto"></video>
+          <video class="phase-video" id="phaseVideo" playsinline preload="auto" poster="Bruce1-pixel-poster.jpg"></video>
         </div>
         <div class="button-row">
           <button id="phaseVideoPlayBtn" type="button" hidden>Continuar recompensa</button>
@@ -931,7 +931,7 @@
         prize();
 
         phaseVideo.pause();
-        if (phaseVideo.src !== PHASE_VIDEO_URL) phaseVideo.src = PHASE_VIDEO_URL;
+        ensurePhaseVideoSource();
         phaseVideo.preload = "auto";
         phaseVideo.muted = false;
         phaseVideo.volume = 0.8;
@@ -944,8 +944,14 @@
         startPhaseVideoPlayback();
       }
 
+      function ensurePhaseVideoSource() {
+        if (phaseVideo.getAttribute("src") !== PHASE_VIDEO_URL) {
+          phaseVideo.setAttribute("src", PHASE_VIDEO_URL);
+        }
+      }
+
       function primePhaseVideo() {
-        if (phaseVideo.src !== PHASE_VIDEO_URL) phaseVideo.src = PHASE_VIDEO_URL;
+        ensurePhaseVideoSource();
         phaseVideo.preload = "auto";
         phaseVideo.muted = true;
         phaseVideo.volume = 0.8;
@@ -969,6 +975,10 @@
       function startPhaseVideoPlayback() {
         if (!state.phaseVideoActive) return;
         phaseVideoPlayBtn.hidden = true;
+        if (phaseVideo.error || phaseVideo.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) {
+          ensurePhaseVideoSource();
+          phaseVideo.load();
+        }
         phaseVideo.muted = false;
         phaseVideo.volume = 0.8;
         const playRequest = phaseVideo.play();
