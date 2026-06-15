@@ -526,9 +526,12 @@
         <h2 id="phaseVideoTitle">Enhorabuena</h2>
         <p class="copy" id="phaseVideoMessage">Recompensa desbloqueada.</p>
         <div class="phase-video-frame">
-          <video class="phase-video" id="phaseVideo" playsinline preload="metadata" controls></video>
+          <video class="phase-video" id="phaseVideo" playsinline preload="auto"></video>
         </div>
-        <p class="small-stat" id="phaseVideoStatus">El juego continuara al terminar el video.</p>
+        <div class="button-row">
+          <button id="phaseVideoPlayBtn" type="button" hidden>Continuar recompensa</button>
+        </div>
+        <p class="small-stat" id="phaseVideoStatus">El juego continuara al terminar la recompensa.</p>
       </div>
     </section>
 
@@ -589,6 +592,7 @@
       const phaseVideoTitle = document.getElementById("phaseVideoTitle");
       const phaseVideoMessage = document.getElementById("phaseVideoMessage");
       const phaseVideo = document.getElementById("phaseVideo");
+      const phaseVideoPlayBtn = document.getElementById("phaseVideoPlayBtn");
       const phaseVideoStatus = document.getElementById("phaseVideoStatus");
       const gameOverReason = document.getElementById("gameOverReason");
       const finalStats = document.getElementById("finalStats");
@@ -916,22 +920,59 @@
         phaseVideoMessage.textContent = videoLimit
           ? `Fase ${phase} superada. Recompensa: primeros ${videoLimit} segundos del video. Bonus +${boost.toLocaleString("es-ES")} puntos.`
           : `Fase ${phase} superada. Recompensa: video completo. Bonus +${boost.toLocaleString("es-ES")} puntos.`;
-        phaseVideoStatus.textContent = "El juego continuara al terminar la recompensa.";
+        phaseVideoStatus.textContent = "Preparando recompensa...";
+        phaseVideoPlayBtn.hidden = true;
         setOverlay(rewardOverlay, false);
         setOverlay(phaseVideoOverlay, true);
         prize();
 
         phaseVideo.pause();
-        phaseVideo.currentTime = 0;
-        if (!phaseVideo.src) phaseVideo.src = PHASE_VIDEO_URL;
+        if (phaseVideo.src !== PHASE_VIDEO_URL) phaseVideo.src = PHASE_VIDEO_URL;
+        phaseVideo.preload = "auto";
         phaseVideo.muted = false;
         phaseVideo.volume = 0.8;
-        phaseVideo.play().catch(() => {
-          phaseVideo.muted = true;
-          phaseVideo.volume = 0.8;
-          phaseVideo.play().catch(() => {
-            phaseVideoStatus.textContent = "Toca el video para reproducir la recompensa.";
+        try {
+          phaseVideo.currentTime = 0;
+        } catch {
+          // Se reinicia en loadedmetadata si el navegador aun no deja mover el cursor.
+        }
+        phaseVideo.load();
+        startPhaseVideoPlayback();
+      }
+
+      function primePhaseVideo() {
+        if (phaseVideo.src !== PHASE_VIDEO_URL) phaseVideo.src = PHASE_VIDEO_URL;
+        phaseVideo.preload = "auto";
+        phaseVideo.muted = true;
+        phaseVideo.volume = 0.8;
+        const warmup = phaseVideo.play();
+        if (!warmup || typeof warmup.then !== "function") return;
+        warmup
+          .then(() => {
+            phaseVideo.pause();
+            try {
+              phaseVideo.currentTime = 0;
+            } catch {
+              // El reinicio definitivo se hace cuando haya metadata.
+            }
+            phaseVideo.muted = false;
+          })
+          .catch(() => {
+            phaseVideo.muted = false;
           });
+      }
+
+      function startPhaseVideoPlayback() {
+        if (!state.phaseVideoActive) return;
+        phaseVideoPlayBtn.hidden = true;
+        phaseVideo.muted = false;
+        phaseVideo.volume = 0.8;
+        const playRequest = phaseVideo.play();
+        if (!playRequest || typeof playRequest.catch !== "function") return;
+        playRequest.catch(() => {
+          if (!state.phaseVideoActive) return;
+          phaseVideoPlayBtn.hidden = false;
+          phaseVideoStatus.textContent = "Pulsa Continuar recompensa.";
         });
       }
 
@@ -950,6 +991,7 @@
       function stopPhaseVideo() {
         state.phaseVideoActive = false;
         state.phaseVideoLimit = null;
+        phaseVideoPlayBtn.hidden = true;
         phaseVideo.pause();
         try {
           phaseVideo.currentTime = 0;
@@ -1370,22 +1412,61 @@
         return Math.floor(randomRange(min, max + 1));
       }
 
-      document.getElementById("startBtn").addEventListener("click", resetGame);
-      document.getElementById("restartBtn").addEventListener("click", resetGame);
+      document.getElementById("startBtn").addEventListener("click", () => {
+        primePhaseVideo();
+        resetGame();
+      });
+      document.getElementById("restartBtn").addEventListener("click", () => {
+        primePhaseVideo();
+        resetGame();
+      });
       document.getElementById("answerBtn").addEventListener("click", submitAnswer);
       document.getElementById("rankingBtn").addEventListener("click", openRanking);
       document.getElementById("viewRankingBtn").addEventListener("click", openRanking);
       document.getElementById("closeRankingBtn").addEventListener("click", closeRanking);
       saveScoreBtn.addEventListener("click", saveCurrentScore);
+      phaseVideoPlayBtn.addEventListener("click", startPhaseVideoPlayback);
+      phaseVideoOverlay.addEventListener("pointerdown", (event) => {
+        if (!state.phaseVideoActive || !phaseVideo.paused) return;
+        if (event.target instanceof HTMLButtonElement) return;
+        startPhaseVideoPlayback();
+      });
+      phaseVideo.addEventListener("loadedmetadata", () => {
+        if (!state.phaseVideoActive) return;
+        try {
+          phaseVideo.currentTime = 0;
+        } catch {
+          // Algunos navegadores esperan a tener datos suficientes.
+        }
+      });
+      phaseVideo.addEventListener("loadeddata", () => {
+        if (!state.phaseVideoActive) return;
+        phaseVideoStatus.textContent = "Recompensa lista...";
+        startPhaseVideoPlayback();
+      });
+      phaseVideo.addEventListener("playing", () => {
+        if (!state.phaseVideoActive) return;
+        phaseVideoPlayBtn.hidden = true;
+        phaseVideoStatus.textContent = "Recompensa en marcha...";
+      });
+      phaseVideo.addEventListener("waiting", () => {
+        if (!state.phaseVideoActive) return;
+        phaseVideoStatus.textContent = "Preparando recompensa...";
+      });
+      phaseVideo.addEventListener("stalled", () => {
+        if (!state.phaseVideoActive) return;
+        phaseVideoStatus.textContent = "Preparando recompensa...";
+      });
       phaseVideo.addEventListener("timeupdate", () => {
         if (!state.phaseVideoActive || !state.phaseVideoLimit) return;
+        if (phaseVideo.readyState < 2 || phaseVideo.videoWidth <= 0) return;
         if (phaseVideo.currentTime >= state.phaseVideoLimit) finishPhaseVideo();
       });
       phaseVideo.addEventListener("ended", finishPhaseVideo);
       phaseVideo.addEventListener("error", () => {
         if (!state.phaseVideoActive) return;
-        phaseVideoStatus.textContent = "No se pudo cargar el video. Volviendo al juego...";
-        setTimeout(finishPhaseVideo, 1200);
+        phaseVideoPlayBtn.hidden = false;
+        phaseVideoStatus.textContent = "No se pudo preparar la recompensa. Pulsa para reintentarlo.";
       });
 
       window.addEventListener("keydown", (event) => {
